@@ -7,10 +7,10 @@ How to generate the map
 python mapper.py [DIR]
 ```
 
-#Examples
+# Examples
 An example with the coordinates of all the capitals
-![Entire World](https://octodex.github.com/images/yaktocat.png)
+![Entire World](examples/all_countries.png)
 
 An example with some random coordinates in Portugal
-![A part of the world](https://octodex.github.com/images/yaktocat.png)
+![A part of the world](examples/some_countries.png)
 
