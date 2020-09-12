@@ -11,6 +11,6 @@ python mapper.py [DIR]
 An example with the coordinates of all the capitals
 ![Entire World](examples/all_countries.png)
 
-An example with some random coordinates in Portugal
+An example with some random coordinates
 ![A part of the world](examples/some_countries.png)
 
