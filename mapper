@@ -32,7 +32,7 @@ def main():
 def make_plt(folder, coast_width, borders_width, marker_width):
     coords = get_all_coordinates(folder)
 
-    print("Images with GPS info: ", len(all_coords))
+    print("Images with GPS info: ", len(coords))
 
     plt.figure(figsize=(RATIO * 100, 100 / RATIO))
 
