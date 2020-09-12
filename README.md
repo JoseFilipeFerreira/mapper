@@ -1,4 +1,4 @@
-# mapper
+# :world_map:  mapper
 Plot all your photos on a map using cartopy
 
 # Usage
