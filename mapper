@@ -102,14 +102,11 @@ def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], 
 def get_curr_extent(coords: Iterable[Tuple[float, float]], ratio: float) -> Tuple[float, float, float, float]:
     """ compute a border arround a list of coords respecting a specific ratio"""
     # calculate min and max
-    minlat, maxlat = 90.0, -90.0
-    minlong, maxlong = 180.0, -180.0
-
-    for lat, long in coords:
-        minlat = min([lat, minlat])
-        maxlat = max([lat, maxlat])
-        minlong = min([long, minlong])
-        maxlong = max([long, maxlong])
+    lats, longs = zip(*coords)
+    minlat = min(lats)
+    maxlat = max(lats)
+    minlong = min(longs)
+    maxlong = max(longs)
 
     # calculta center coordinates
     centerlat = (minlat + maxlat)/2
