@@ -1,111 +1,109 @@
 #!/bin/python
+"""create a map with all the places of the photos in a folder"""
 
-import glob
+import os
 import sys
-from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-import matplotlib.pyplot as plt
+from typing import Generator, Iterable, Tuple
 
-reversed_tags = dict(zip(TAGS.values(), TAGS.keys()))
-ID_GPS = reversed_tags['GPSInfo']
-RATIO = 16.0/9
+import matplotlib.pyplot as plt
+from cartopy import crs, feature
+from PIL import Image
+from PIL.ExifTags import GPSTAGS, IFD
+
+RATIO = 16.0/10
+BACKGROUND=(0.0, 0.0, 0.0)
+FOREGROUND=(1.0, 1.0, 1.0)
 
 def main():
+    """ main function """
     if len(sys.argv) > 1:
-        FOLDER_NAME = sys.argv[1]
+        folder_name = sys.argv[1]
     else:
-        print("USAGE: mapper.py folder output")
+        print("USAGE: mapper folder [output]")
         return
-    
+
     if len(sys.argv) > 2:
-        make_plt(FOLDER_NAME, 4, 2, 15)
+        make_plt(folder_name, 4, 2, 15)
         plt.savefig(
             sys.argv[2],
             bbox_inches = 'tight',
             pad_inches = 0)
     else:
-        make_plt(all_coords, 1, 1, 1)
+        make_plt(folder_name, 1, 1, 1)
         plt.show()
 
-def make_plt(folder, coast_width, borders_width, marker_width):
-    coords = get_all_coordinates(folder)
+def make_plt(folder:str , coast_width: int, borders_width: int, marker_width: int):
+    """ create a plot object """
+    photos = list(get_all_photos(folder))
+    print("Total photos: ", len(photos))
 
-    print("Images with GPS info: ", len(coords))
+    coords = list(get_all_coordinates(photos))
+    print(f"Photos with GPS info: {len(coords)} ({int(len(coords)/len(photos)*100)}%)")
 
     plt.figure(figsize=(RATIO * 100, 100 / RATIO))
 
-    ax = plt.axes(projection=ccrs.PlateCarree())
+    plot = plt.axes(projection=crs.PlateCarree())
 
-    ax.set_facecolor((0.0, 0.0, 0.0))
+    plot.set_facecolor(BACKGROUND)
 
-    ax.add_feature(
-        cfeature.COASTLINE.with_scale('10m'),
-        color='white',
+    plot.add_feature(
+        feature.COASTLINE.with_scale('10m'),
+        color=FOREGROUND,
         linewidth=coast_width)
 
-    ax.add_feature(
-        cfeature.BORDERS.with_scale('10m'),
+    plot.add_feature(
+        feature.BORDERS.with_scale('10m'),
         linestyle=':',
-        color='white',
+        color=FOREGROUND,
         linewidth=borders_width)
 
-    ax.set_extent(
+    plot.set_extent(
         get_curr_extent(coords, RATIO),
-        crs=ccrs.PlateCarree())
+        crs=crs.PlateCarree())
 
     for lat, long in coords:
-        ax.plot(
-            long,
-            lat,
-            markersize=marker_width,
-            marker='o',
-            color='red')
+        plot.plot(long, lat, markersize=marker_width, marker='o', color='red')
 
-def get_all_photos(folder):
-    for ext in ['.jpeg', '.jpg', '.png']:
-        for file in glob.glob(folder + '/**/*' + ext, recursive=True):
-            yield file
+    return plot
 
-def get_decimal_coordinates(gps_info):
-    for key in ['Latitude', 'Longitude']:
-        if 'GPS' + key in gps_info and 'GPS' + key + 'Ref' in gps_info:
-            e = gps_info['GPS' + key]
-            ref = gps_info['GPS' + key + 'Ref']
-            gps_info[key] = float( e[0] +
-                              e[1] / 60 +
-                              e[2] / 3600
-                            ) * (-1 if ref in ['S','W'] else 1)
+def get_all_photos(folder: str) -> Generator[str, None, None]:
+    """return all photos in a folder recursively"""
+    for currentpath, _, files in os.walk(folder):
+        for file in files:
+            _, extension = os.path.splitext(file)
+            if extension in ['.jpeg', '.jpg', '.png']:
+                yield os.path.join(currentpath, file)
 
-    if 'Latitude' in gps_info and 'Longitude' in gps_info:
-        return gps_info['Latitude'], gps_info['Longitude']
-    else:
-        return None
+def decimal_coords(coords: Tuple[int, int, int], ref: str) -> float:
+    """convert from coords tuples to deciaml coords"""
+    decimal_degrees = coords[0] + coords[1] / 60 + coords[2] / 3600
+    if ref in ['S', 'W']:
+        decimal_degrees = -decimal_degrees
+    return decimal_degrees
 
-def get_all_coordinates(folder):
-    all_coords = []
-    for file in get_all_photos(folder):
-        img_exif = Image.open(file).getexif()
 
-        if img_exif and img_exif.get(ID_GPS):
-            gps_info = {}
-            gps_dict = img_exif.get(ID_GPS)
+def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], None, None]:
+    """get the coordinates of all photos inside a folder recursively"""
+    for photo in photos:
+        img=Image.open(photo)
 
-            for key, value in gps_dict.items():
-                gps_info[GPSTAGS.get(key, key)] = value
+        gps_info={}
+        for key, value in img.getexif().get_ifd(IFD.GPSInfo).items():
+            geo_tag=GPSTAGS.get(key)
+            gps_info[geo_tag]=value
 
-            coords = get_decimal_coordinates(gps_info)
+        try:
+            yield (decimal_coords(gps_info['GPSLatitude'], gps_info['GPSLatitudeRef']),
+            decimal_coords(gps_info['GPSLongitude'], gps_info['GPSLongitudeRef']))
 
-            if coords:
-                all_coords.append(coords)
+        except KeyError:
+            continue
 
-    return all_coords
-
-def get_curr_extent(coords, ratio):
+def get_curr_extent(coords: Iterable[Tuple[float, float]], ratio: float) -> Tuple[float, float, float, float]:
+    """ compute a border arround a list of coords respecting a specific ratio"""
     # calculate min and max
-    minlat, maxlat = 90, -90
-    minlong, maxlong = 180, -180
+    minlat, maxlat = 90.0, -90.0
+    minlong, maxlong = 180.0, -180.0
 
     for lat, long in coords:
         minlat = min([lat, minlat])
@@ -156,6 +154,6 @@ def get_curr_extent(coords, ratio):
         maxlat -= minlat + 90
         minlat = -90
 
-    return [minlong, maxlong, minlat, maxlat]
+    return (minlong, maxlong, minlat, maxlat)
 
 main()
