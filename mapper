@@ -13,6 +13,14 @@ from PIL.ExifTags import GPSTAGS, IFD
 RATIO = 16.0/10
 BACKGROUND=(0.0, 0.0, 0.0)
 FOREGROUND=(1.0, 1.0, 1.0)
+MARKERS=(1.0, 0.0, 0.0)
+
+def hex_to_rgb(value: str) -> Tuple[float, float, float]:
+    """convert hex colors to rgb"""
+    value = value.lstrip('#')
+    lv = len(value)
+    return tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+
 
 def main():
     """ main function """
@@ -62,7 +70,7 @@ def make_plt(folder:str , coast_width: int, borders_width: int, marker_width: in
         crs=crs.PlateCarree())
 
     for lat, long in coords:
-        plot.plot(long, lat, markersize=marker_width, marker='o', color='red')
+        plot.plot(long, lat, markersize=marker_width, marker='o', color=MARKERS)
 
     return plot
 
