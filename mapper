@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 from cartopy import crs, feature
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
+from tqdm import tqdm
+
+
 
 
 def hex_to_rgb(value: str) -> Tuple[float, float, float]:
@@ -63,7 +66,7 @@ def main():
 
     plot.set_extent(get_curr_extent(coords, IMAGE_RATIO), crs=crs.PlateCarree())
 
-    for lat, long in coords:
+    for lat, long in tqdm(coords, desc="writing coordinates"):
         plot.plot(long, lat, markersize=MARKER_WIDTH, marker='o', color=MARKER_COLOR)
 
     # save image
@@ -94,7 +97,7 @@ def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], 
     except (IOError, json.JSONDecodeError):
         coordinates_cache = {}
 
-    for photo in photos:
+    for photo in tqdm(photos, desc="fetching coordinates"):
         cache = coordinates_cache.get(photo)
 
         if cache:
