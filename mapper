@@ -20,7 +20,8 @@ def hex_to_rgb(value: str) -> Tuple[float, float, float]:
 
 IMAGE_RATIO=os.environ.get("IMAGE_RATIO", default=1.6)
 
-CACHE_COORDINATES="cache/coordinates.json"
+CACHE_FOLDER=os.environ.get("CACHE_FOLDER", default="/cache")
+CACHE_COORDINATES=CACHE_FOLDER + "/coordinates.json"
 
 IMAGE_FOLDER=os.environ.get("IMAGE_FOLDER", default="/images")
 EXPORT_IMAGE=os.environ.get("EXPORT_IMAGE", default="/export/map.png")
