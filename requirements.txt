@@ -1,2 +1,2 @@
-Cartopy==0.21.1
+Cartopy==0.22.0
 Pillow==10.0.1

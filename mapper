@@ -18,7 +18,7 @@ def hex_to_rgb(value: str) -> Tuple[float, float, float]:
     length = len(value)
     return tuple(int(value[i:i + length // 3], 16)/255 for i in range(0, length, length // 3))
 
-IMAGE_RATIO=os.environ.get("IMAGE_RATIO", default=1.6)
+IMAGE_RATIO=float(os.environ.get("IMAGE_RATIO", default=1.6))
 
 CACHE_FOLDER=os.environ.get("CACHE_FOLDER", default="/cache")
 CACHE_COORDINATES=CACHE_FOLDER + "/coordinates.json"
@@ -31,9 +31,9 @@ BG_COLOR=hex_to_rgb(os.environ.get("BG_COLOR", default="#000000"))
 FG_COLOR=hex_to_rgb(os.environ.get("FG_COLOR", default="#FFFFFF"))
 MARKER_COLOR=hex_to_rgb(os.environ.get("MARKER_COLOR", default="#FF0000"))
 
-COAST_WIDTH = os.environ.get("COAST_WIDTH", default=4)
-BORDERS_WIDTH = os.environ.get("BORDERS_WIDTH", default=2)
-MARKER_WIDTH= os.environ.get("MARKER_WIDTH",default=15)
+COAST_WIDTH = int(os.environ.get("COAST_WIDTH", default=4))
+BORDERS_WIDTH = int(os.environ.get("BORDERS_WIDTH", default=2))
+MARKER_WIDTH= int(os.environ.get("MARKER_WIDTH",default=15))
 
 def main():
     """ main function """
