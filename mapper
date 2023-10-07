@@ -1,6 +1,7 @@
 #!/bin/python
 """create a map with all the places of the photos in a folder"""
 
+import json
 import os
 import sys
 from typing import Generator, Iterable, Tuple
@@ -10,69 +11,63 @@ from cartopy import crs, feature
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
 
-RATIO = 16.0/10
-BACKGROUND=(0.0, 0.0, 0.0)
-FOREGROUND=(1.0, 1.0, 1.0)
-MARKERS=(1.0, 0.0, 0.0)
 
 def hex_to_rgb(value: str) -> Tuple[float, float, float]:
     """convert hex colors to rgb"""
     value = value.lstrip('#')
-    lv = len(value)
-    return tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+    length = len(value)
+    return tuple(int(value[i:i + length // 3], 16)/255 for i in range(0, length, length // 3))
 
+IMAGE_RATIO=os.environ.get("IMAGE_RATIO", default=1.6)
+
+CACHE_COORDINATES="cache/coordinates.json"
+
+IMAGE_FOLDER=os.environ.get("IMAGE_FOLDER", default="/images")
+EXPORT_IMAGE=os.environ.get("EXPORT_IMAGE", default="/export/map.png")
+
+# Image config
+BG_COLOR=hex_to_rgb(os.environ.get("BG_COLOR", default="#000000"))
+FG_COLOR=hex_to_rgb(os.environ.get("FG_COLOR", default="#FFFFFF"))
+MARKER_COLOR=hex_to_rgb(os.environ.get("MARKER_COLOR", default="#FF0000"))
+
+COAST_WIDTH = os.environ.get("COAST_WIDTH", default=4)
+BORDERS_WIDTH = os.environ.get("BORDERS_WIDTH", default=2)
+MARKER_WIDTH= os.environ.get("MARKER_WIDTH",default=15)
 
 def main():
     """ main function """
-    if len(sys.argv) > 1:
-        folder_name = sys.argv[1]
-    else:
-        print("USAGE: mapper folder [output]")
-        return
-
-    if len(sys.argv) > 2:
-        make_plt(folder_name, 4, 2, 15)
-        plt.savefig(
-            sys.argv[2],
-            bbox_inches = 'tight',
-            pad_inches = 0)
-    else:
-        make_plt(folder_name, 1, 1, 1)
-        plt.show()
-
-def make_plt(folder:str , coast_width: int, borders_width: int, marker_width: int):
-    """ create a plot object """
-    photos = list(get_all_photos(folder))
+    # create a plot object
+    photos = list(get_all_photos(IMAGE_FOLDER))
     print("Total photos: ", len(photos))
 
     coords = list(get_all_coordinates(photos))
     print(f"Photos with GPS info: {len(coords)} ({int(len(coords)/len(photos)*100)}%)")
 
-    plt.figure(figsize=(RATIO * 100, 100 / RATIO))
+    plt.figure(figsize=(IMAGE_RATIO * 100, 100 / IMAGE_RATIO))
 
     plot = plt.axes(projection=crs.PlateCarree())
 
-    plot.set_facecolor(BACKGROUND)
+    plot.set_facecolor(BG_COLOR)
 
     plot.add_feature(
         feature.COASTLINE.with_scale('10m'),
-        color=FOREGROUND,
-        linewidth=coast_width)
+        color=FG_COLOR,
+        linewidth=COAST_WIDTH)
 
     plot.add_feature(
         feature.BORDERS.with_scale('10m'),
         linestyle=':',
-        color=FOREGROUND,
-        linewidth=borders_width)
+        color=FG_COLOR,
+        linewidth=BORDERS_WIDTH)
 
-    plot.set_extent(
-        get_curr_extent(coords, RATIO),
-        crs=crs.PlateCarree())
+    plot.set_extent(get_curr_extent(coords, IMAGE_RATIO), crs=crs.PlateCarree())
 
     for lat, long in coords:
-        plot.plot(long, lat, markersize=marker_width, marker='o', color=MARKERS)
+        plot.plot(long, lat, markersize=MARKER_WIDTH, marker='o', color=MARKER_COLOR)
 
-    return plot
+    # save image
+    plt.savefig(EXPORT_IMAGE, bbox_inches = 'tight', pad_inches = 0)
+
 
 def get_all_photos(folder: str) -> Generator[str, None, None]:
     """return all photos in a folder recursively"""
@@ -87,12 +82,24 @@ def decimal_coords(coords: Tuple[int, int, int], ref: str) -> float:
     decimal_degrees = coords[0] + coords[1] / 60 + coords[2] / 3600
     if ref in ['S', 'W']:
         decimal_degrees = -decimal_degrees
-    return decimal_degrees
+    return float(decimal_degrees)
 
 
 def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], None, None]:
     """get the coordinates of all photos inside a folder recursively"""
+    try:
+        with open(CACHE_COORDINATES, "r", encoding="utf-8") as file:
+            coordinates_cache = json.load(file)
+    except (IOError, json.JSONDecodeError):
+        coordinates_cache = {}
+
     for photo in photos:
+        cache = coordinates_cache.get(photo)
+
+        if cache:
+            yield cache
+            continue
+
         img=Image.open(photo)
 
         gps_info={}
@@ -101,11 +108,16 @@ def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], 
             gps_info[geo_tag]=value
 
         try:
-            yield (decimal_coords(gps_info['GPSLatitude'], gps_info['GPSLatitudeRef']),
+            convert_coords = (decimal_coords(gps_info['GPSLatitude'], gps_info['GPSLatitudeRef']),
             decimal_coords(gps_info['GPSLongitude'], gps_info['GPSLongitudeRef']))
-
+            coordinates_cache[photo] = convert_coords
+            yield convert_coords
         except KeyError:
             continue
+
+    with open(CACHE_COORDINATES, "w", encoding="utf-8") as file:
+        json.dump(coordinates_cache, file)
+
 
 def get_curr_extent(coords: Iterable[Tuple[float, float]], ratio: float) -> Tuple[float, float, float, float]:
     """ compute a border arround a list of coords respecting a specific ratio"""
