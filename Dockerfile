@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.12
 
 RUN apt-get update
 RUN apt-get -qq install libgeos++-dev libgeos-dev libgeos-c1v5 libgeos-dev libgeos-doc

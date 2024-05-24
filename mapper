@@ -1,17 +1,18 @@
-#!/bin/python
 """create a map with all the places of the photos in a folder"""
 
 import json
 import os
-from typing import Generator, Iterable, Tuple
+from typing import Generator, Iterable, Tuple, Optional, List
 
+from math import cos
 import matplotlib.pyplot as plt
 import cartopy
 from cartopy import crs, feature
-from PIL import Image
+from PIL import Image, ExifTags
 from PIL.ExifTags import GPSTAGS, IFD
 from tqdm import tqdm
-from geopy.distance import great_circle as distance
+from scipy.spatial import cKDTree
+from dataclasses import dataclass
 
 
 def hex_to_rgb(value: str) -> Tuple[float, float, float]:
@@ -21,7 +22,7 @@ def hex_to_rgb(value: str) -> Tuple[float, float, float]:
     return tuple(int(value[i:i + length // 3], 16)/255 for i in range(0, length, length // 3))
 
 IMAGE_RATIO=float(os.environ.get("IMAGE_RATIO", default=16/9))
-FILTER_DISTANCE=float(os.environ.get("FILTER_DISTANCE", default=10))
+FILTER_DISTANCE=float(os.environ.get("FILTER_DISTANCE", default=30))
 
 CACHE_FOLDER=os.environ.get("CACHE_FOLDER", default="/cache")
 CACHE_COORDINATES=CACHE_FOLDER + "/coordinates.json"
@@ -37,32 +38,29 @@ MARKER_COLOR=hex_to_rgb(os.environ.get("MARKER_COLOR", default="#FF0000"))
 
 COAST_WIDTH = int(os.environ.get("COAST_WIDTH", default=4))
 BORDERS_WIDTH = int(os.environ.get("BORDERS_WIDTH", default=2))
-MARKER_WIDTH= int(os.environ.get("MARKER_WIDTH",default=15))
+MARKER_WIDTH= int(os.environ.get("MARKER_WIDTH",default=12))
+
+@dataclass
+class Photo:
+    filename: str
+    coords: Tuple[float, float]
+    date: Optional[str]
 
 def main():
     """ main function """
 
     cartopy.config["data_dir"] = CACHE_CARTOPY
 
-    # create a plot object
     photos = list(get_all_photos(IMAGE_FOLDER))
-    photos_len = len(photos)
-    print("Total photos: ", photos_len)
+    total_photos_len = len(photos)
+    print("Total photos: ", total_photos_len)
 
-    coords = list(get_all_coordinates(photos))
-    initial_coords_len = len(coords)
-    print(f"Photos with GPS info: {initial_coords_len} ({int(initial_coords_len/photos_len*100)}%)")
+    photos = list(get_all_coordinates(photos))
+    filtered_photos_len = len(photos)
+    print(f"Photos with GPS info: {filtered_photos_len} ({int(filtered_photos_len/total_photos_len*100)}%)")
 
-    with tqdm(desc="cleaning coordinates", total=initial_coords_len**2) as pbar:
-        for pivot in coords:
-            for compare in coords:
-                if pivot != compare and distance(pivot, compare).km < FILTER_DISTANCE:
-                    coords.remove(compare)
-                    pbar.update(len(coords) + 1)
-                else:
-                    pbar.update(1)
-
-    print(f"Photos remaining: {len(coords)}")
+    photos = list(filter_nearby_photos(photos))
+    print(f"Photos remaining: {len(photos)}")
 
 
     plt.figure(figsize=(IMAGE_RATIO * 100, 100 / IMAGE_RATIO))
@@ -82,9 +80,10 @@ def main():
         color=FG_COLOR,
         linewidth=BORDERS_WIDTH)
 
-    plot.set_extent(get_curr_extent(coords), crs=crs.PlateCarree())
+    plot.set_extent(get_curr_extent(photos), crs=crs.PlateCarree())
 
-    for lat, long in tqdm(coords, desc="writing coordinates"):
+    for photo in tqdm(photos, desc="writing coordinates"):
+        lat, long = photo.coords
         plot.plot(long, lat, markersize=MARKER_WIDTH, marker='o', color=MARKER_COLOR)
 
     # save image
@@ -109,7 +108,7 @@ def decimal_coords(coords: Tuple[int, int, int], ref: str) -> float:
     return float(decimal_degrees)
 
 
-def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], None, None]:
+def get_all_coordinates(photos: Iterable[str]) -> Generator[Photo, None, None]:
     """get the coordinates of all photos inside a folder recursively"""
     try:
         with open(CACHE_COORDINATES, "r", encoding="utf-8") as file:
@@ -118,24 +117,34 @@ def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], 
         coordinates_cache = {}
 
     for photo in tqdm(photos, desc="fetching coordinates"):
-        cache = coordinates_cache.get(photo)
 
-        if cache:
-            yield cache
+        if photo in coordinates_cache:
+            cache = coordinates_cache[photo]
+            if cache:
+                yield Photo(**cache)
             continue
 
-        img=Image.open(photo)
+        img = Image.open(photo)
+        exif = img.getexif()
+
+        exif_map = { ExifTags.TAGS[k]: v for k, v in exif.items() if k in ExifTags.TAGS and type(v) is not bytes }
+
+        date_taken = exif_map.get('DateTime')
 
         gps_info={}
-        for key, value in img.getexif().get_ifd(IFD.GPSInfo).items():
+        for key, value in exif.get_ifd(IFD.GPSInfo).items():
             geo_tag=GPSTAGS.get(key)
             gps_info[geo_tag]=value
 
         try:
             convert_coords = (decimal_coords(gps_info['GPSLatitude'], gps_info['GPSLatitudeRef']),
             decimal_coords(gps_info['GPSLongitude'], gps_info['GPSLongitudeRef']))
-            coordinates_cache[photo] = convert_coords
-            yield convert_coords
+
+            photo_obj = Photo(photo, convert_coords, date_taken)
+            coordinates_cache[photo] = vars(photo_obj)
+            yield photo_obj
+
+
         except KeyError:
             coordinates_cache[photo] = None
             continue
@@ -143,11 +152,41 @@ def get_all_coordinates(photos: Iterable[str]) -> Generator[Tuple[float,float], 
     with open(CACHE_COORDINATES, "w", encoding="utf-8") as file:
         json.dump(coordinates_cache, file)
 
+def km_to_degrees(latitude, km):
+    """Convert from kilometers to degrees"""
+    # Approximate conversion: 1 degree of latitude ~= 111.12 km
+    # Conversion for longitude depends on latitude
+    degrees_lat = km / 111.12
+    degrees_lon = km / (111.12 * cos(latitude))
+    return degrees_lat, degrees_lon
 
-def get_curr_extent(coords: Iterable[Tuple[float, float]]) -> Tuple[float, float, float, float]:
+def filter_nearby_photos(photos: List[Photo]) -> Iterable[Photo]:
+    """filter photos that have another photo closer than FILTER_DISTANCE"""
+    points = [photo.coords for photo in photos]
+    tree = cKDTree(points)
+
+    threshold_deg_lat, threshold_deg_lon = km_to_degrees(photos[0].coords[0], FILTER_DISTANCE)
+    threshold_deg = max(threshold_deg_lat, threshold_deg_lon)
+
+    filtered_indices = set()
+    for i in tqdm(range(len(photos)), desc="Filtering points"):
+        if i in filtered_indices:
+            continue
+        nearby_indices = tree.query_ball_point(points[i], threshold_deg)
+        filtered_indices.update(nearby_indices)
+        filtered_indices.discard(i)  # Exclude self
+
+    # Filter out the photos based on the filtered indices
+    filtered_photos = [photos[i] for i in range(len(photos)) if i not in filtered_indices]
+
+    return filtered_photos
+
+def get_curr_extent(photos: Iterable[Photo]) -> Tuple[float, float, float, float]:
     """ compute a border arround a list of coords respecting a specific ratio"""
+    lats = [ x.coords[0] for x in photos ]
+    longs = [ x.coords[1] for x in photos ]
+
     # calculate min and max
-    lats, longs = zip(*coords)
     minlat = min(lats)
     maxlat = max(lats)
     minlong = min(longs)
