@@ -6,6 +6,6 @@ RUN apt-get -qq install libgeos++-dev libgeos-dev libgeos-c1v5 libgeos-dev libge
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY mapper .
+COPY mapper.py .
 
-CMD [ "python", "mapper"]
+CMD [ "python", "mapper.py"]
